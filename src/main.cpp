@@ -18,11 +18,11 @@ struct AppState {
     SDL_Window* window = nullptr;
     SDL_Renderer* renderer = nullptr;
 
-    Garnet::textureManager textureManager;
+    Garnet::TextureManager textureManager;
     Garnet::Renderer Renderer;
     Garnet::Registry registry;
     Garnet::Scene scene;
-    Garnet::sceneManager manager;
+    Garnet::SceneManager manager;
 
     AppState(SDL_Window* w, SDL_Renderer* r) :
         window(w), renderer(r), manager(r), textureManager(r), Renderer(r, textureManager) {}
@@ -102,7 +102,7 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char **argv) {
 
     app->scene.bind(updatePos);
     app->scene.getInitRegistry() = app->registry;
-    app->manager.setActiveScene(&app->scene);
+    app->manager.addScene("test", app->scene);
     app->manager.start();
 
     return SDL_APP_CONTINUE;
