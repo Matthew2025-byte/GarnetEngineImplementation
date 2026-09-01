@@ -5,12 +5,6 @@
 #include <GarnetEngine/Scene.hpp>
 #include <iostream>
 
-struct ThreadData {
-    Garnet::Registry* registries[2];
-    SDL_Mutex* mutexes[2];
-    SDL_AtomicInt* renderReg;
-    SDL_AtomicInt* running;
-};
 struct velocity { float x; float y; };
 
 
@@ -20,60 +14,38 @@ struct AppState {
 
     Garnet::TextureManager textureManager;
     Garnet::Renderer Renderer;
-    Garnet::Registry registry;
     Garnet::Scene scene;
-    Garnet::SceneManager manager;
+    Garnet::SceneManager sceneManager;
 
     AppState(SDL_Window* w, SDL_Renderer* r) :
-        window(w), renderer(r), manager(r), textureManager(r), Renderer(r, textureManager) {}
+        window(w), renderer(r), sceneManager(r), textureManager(r), Renderer(r, textureManager) {}
 };
 
 
-
-int SDLCALL ThreadLogic(void* args) {
-    ThreadData& data = *static_cast<ThreadData*>(args);
-    Garnet::Registry lastBuffer = *data.registries[!SDL_GetAtomicInt(data.renderReg)];
-
-    constexpr Uint64 target_ns = 16'666'667;
-    int update_count = 0;
-
-    // dt calculation
-    Uint64 last_ticks = SDL_GetTicksNS();
-    while (SDL_GetAtomicInt(data.running)) {
-        Uint64 frame_start = SDL_GetTicksNS();
-        int activeBuff = SDL_GetAtomicInt(data.renderReg);
-        if (activeBuff == -1) { break; };
-
-        float dt = (frame_start - last_ticks) / 1'000'000'000.f;
-        last_ticks = frame_start;
-
-        lastBuffer.each<Garnet::Components::Transform, velocity>([&](Garnet::Entity entity, Garnet::Components::Transform& transform, velocity& vel) {
-            transform.position.x -= vel.x * dt;
-            transform.position.y -= vel.y * dt;
-        });
-        
-        SDL_LockMutex(data.mutexes[!activeBuff]);
-        *data.registries[!activeBuff] = lastBuffer;
-        SDL_UnlockMutex(data.mutexes[!activeBuff]);
-        SDL_SetAtomicInt(data.renderReg, !activeBuff);
-
-        //SDL_Log("Physics update: %d", update_count++);
-
-        Uint64 frame_end = SDL_GetTicksNS();
-        Uint64 elapsed = frame_end - frame_start;
-        if (elapsed < target_ns) {
-            SDL_DelayNS(target_ns - elapsed);
-        }
-        
-    }
-    return 0;
-}
 
 void updatePos(float dt, Garnet::Entity _, Garnet::Components::Transform& transform, velocity& vel) {
     transform.position.x -= vel.x * dt;
     transform.position.y -= vel.y * dt;
 }
 
+#define GRAVITY_CONSTANT 100000.0f
+void gravitySystem(float dt, Garnet::Registry& registry, const std::vector<Garnet::Entity>& entities) {
+    for (auto primaryE : entities) {
+        auto& primaryPos = registry.getComponent<Garnet::Components::Transform>(primaryE).position;
+
+        for (auto secondaryE : entities) {
+            if (primaryE == secondaryE) continue;
+            auto& secondaryPos = registry.getComponent<Garnet::Components::Transform>(secondaryE).position;
+
+            Garnet::vec2 direction = (secondaryPos - primaryPos).normalized();
+            float magnitudeSq = (secondaryPos - primaryPos).x * (secondaryPos - primaryPos).x + (secondaryPos - primaryPos).y * (secondaryPos - primaryPos).y;
+            float force = -GRAVITY_CONSTANT / magnitudeSq;
+
+            registry.getComponent<velocity>(primaryE).x += direction.x * force * dt;
+            registry.getComponent<velocity>(primaryE).y += direction.y * force * dt;
+        }
+    }
+}
 
 SDL_AppResult SDL_AppInit(void **appstate, int argc, char **argv) {
     // Assign memory for to bind Appstate to appstate
@@ -88,30 +60,36 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char **argv) {
 
     AppState* app = new AppState{window, renderer};
     *appstate = app;
-    
+    Garnet::Registry& registry = app->scene.getInitRegistry();
 
-    Garnet::Entity player = app->registry.createEntity();
-    app->registry.addComponent<Garnet::Components::Transform>(player, { Garnet::vec2(400, 300) });
-    app->registry.addComponent<velocity>(player, { 0, 10 });
-    
     SDL_PropertiesID props = SDL_CreateProperties();
-    SDL_SetFloatProperty(props, GARNET_SVG_RASTER_WIDTH, 64);
-    app->registry.addComponent<Garnet::TextureID>(player, app->textureManager.Load("Eagle.svg", props));
+    SDL_SetFloatProperty(props, GARNET_SVG_RASTER_WIDTH, 50);
+    
+    auto e1 = registry.createEntity();
+    auto e2 = registry.createEntity();
+    registry.addComponent<Garnet::Components::Transform>(e1, {{400, 200}, 0});
+    registry.addComponent<velocity>(e1, {15, -10});
+    registry.addComponent<Garnet::Components::Transform>(e2, {{400, 100}, 0});
+    registry.addComponent<velocity>(e2, {-15, 10});
+    registry.addComponent<Garnet::TextureID>(e1, app->textureManager.Load("circle.svg", props));
+    registry.addComponent<Garnet::TextureID>(e2, app->textureManager.Load("circle.svg", props));
+
     SDL_DestroyProperties(props);
 
 
+    app->scene.bindSystem<Garnet::Components::Transform, velocity>(gravitySystem);
     app->scene.bind(updatePos);
-    app->scene.getInitRegistry() = app->registry;
-    app->manager.addScene("test", app->scene);
-    app->manager.start();
+    
+    app->sceneManager.addScene("test", app->scene);
+    app->sceneManager.start();
 
     return SDL_APP_CONTINUE;
 }
 
 SDL_AppResult SDL_AppIterate(void *appstate) {
     AppState& app = *static_cast<AppState*>(appstate);
-    
-    app.Renderer.update(app.manager.getRenderRegistry());
+
+    app.Renderer.update(app.sceneManager.getRenderRegistry());
 
     return SDL_APP_CONTINUE;
 }
