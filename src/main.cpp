@@ -174,8 +174,8 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char **argv) {
     registry.addComponent<Garnet::Components::Transform>(e3, {{300, 150}, 0});
     registry.addComponent<Garnet::TextureID>(e3, app->textureManager.Load("circle1.svg", props));
     registry.addComponent<Garnet::Components::Rigidbody>(e3, {{0, 0}, {0, 10}, 1e3f, 0.8f, false});
-    registry.addComponent<ColliderEx>(e3, {Circle, {50, 50}, {0, 0}});
-    registry.addComponent<circleComponent>(e3, {100.f});
+    registry.addComponent<ColliderEx>(e3, {Circle, {100, 100}, {0, 0}});
+    registry.addComponent<circleComponent>(e3, {50.f});
 
     SDL_DestroyProperties(props);
 
