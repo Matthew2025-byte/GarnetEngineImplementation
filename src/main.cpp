@@ -4,7 +4,7 @@
 #include <GarnetEngine/Garnet.hpp>
 #include <GarnetEngine/Scene.hpp>
 #include <iostream>
-#include <GarnetEngine/Collision.hpp>
+#include <GarnetEngine/CollisionSystem.hpp>
 
 using vec2 = Garnet::vec2;
 namespace Components = Garnet::Components;
@@ -16,13 +16,12 @@ struct AppState {
     SDL_Window* window = nullptr;
     SDL_Renderer* renderer = nullptr;
 
-    Garnet::TextureManager textureManager;
     Garnet::Renderer Renderer;
     Garnet::Scene scene;
     Garnet::SceneManager sceneManager;
 
     AppState(SDL_Window* w, SDL_Renderer* r) :
-        window(w), renderer(r), sceneManager(r), textureManager(r), Renderer(r, textureManager) {}
+        window(w), renderer(r), sceneManager(r), Renderer(r, sceneManager.getTextureManager()) {}
 };
 
 
@@ -32,17 +31,17 @@ void updatePos(float dt, Garnet::Entity _, Components::Transform& transform, Com
     transform.position.y += rigidbody.velocity.y * dt;
 }
 
-Garnet::Entity createCircle(Garnet::Registry& registry, Garnet::TextureManager& textureManager, float radius, vec2 pos, const char* texture) {
-    SDL_PropertiesID props = SDL_CreateProperties();
-    SDL_SetFloatProperty(props, GARNET_SVG_RASTER_WIDTH, radius * 2);
+Garnet::Entity createCircle(Garnet::Registry& registry, Garnet::TextureManager& textureManager, float radius, vec2 pos, Garnet::TextureID tex) {
+    using namespace Components;
     auto entity = registry.createEntity();
-    registry.addComponent<Components::Transform>(entity, {pos, 0});
-    registry.addComponent<Garnet::TextureID>(entity, textureManager.Load(texture, props));
-    registry.addComponent<Components::Rigidbody>(entity, Components::Rigidbody(1e3f, 0.8f, false));
-    registry.addComponent<Components::Collider>(entity, Components::Collider({radius * 2, radius * 2}, Components::colliderType::Circle));
-    registry.addComponent<Components::circleCollider>(entity, {radius});
+    auto [transform, textureID, rigidbody, collider, circle] = registry.addComponents<Transform, Garnet::TextureID, Rigidbody, Collider, circleCollider>(entity);
+    
+    transform.position = pos;
+    textureID = tex;
+    rigidbody = Rigidbody(1e3f, 0.8f, false);
+    collider = Collider({radius * 2, radius * 2}, colliderType::Circle);
+    circle.radius = radius;
 
-    SDL_DestroyProperties(props);
     return entity;
 }
 
@@ -81,19 +80,22 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char **argv) {
     AppState* app = new AppState{window, renderer};
     *appstate = app;
     Garnet::Registry& registry = app->scene.getInitRegistry();
+    Garnet::TextureManager& textureManager = app->sceneManager.getTextureManager();
 
-    createCircle(registry, app->textureManager, 25.f, {100, 300}, "circle.svg");
-    createCircle(registry, app->textureManager, 25.f, {300, 300}, "circle.svg");
-    createCircle(registry, app->textureManager, 50.f, {300, 150}, "circle1.svg");
+    app->scene.addAsset("circle.svg", Garnet::assetType::Texture, {{"width", "50"}});
+    app->scene.addAsset("circle1.svg", Garnet::assetType::Texture, {{"width", "100"}});
+
+    createCircle(registry, textureManager, 25.f, {100, 300}, {1});
+    createCircle(registry, textureManager, 25.f, {300, 300}, {1});
+    createCircle(registry, textureManager, 50.f, {300, 150}, {2});
 
     app->scene.bindSystem<Components::Transform, Components::Rigidbody>(gravitySystem);
-    app->scene.bindSystem<Components::Transform, Components::Rigidbody, Components::Collider>(Garnet::CollisionSystem::collisionSystem);
+    app->scene.bindSystem<Components::Transform, Components::Rigidbody, Components::Collider>(Garnet::CollisionSystem::System);
     app->scene.bind(updatePos);
 
     
     app->sceneManager.addScene("test", app->scene);
     app->sceneManager.start();
-
     return SDL_APP_CONTINUE;
 }
 
